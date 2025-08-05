@@ -15,8 +15,7 @@
 
 (def HOME (System/getProperty "user.home"))
 
-(defn home? []
-  (= HOME (System/getProperty "user.dir")))
+(defn home? [] (= HOME (System/getProperty "user.dir")))
 
 (defonce *instance (atom nil))
 
@@ -128,31 +127,58 @@
         (throw (Exception. "TODO verify existing shadow-cljs.edn")))
       (spit "shadow-cljs.edn" (with-out-str (pprint/pprint nominal-cfg))))))
 
+(defn slurp-template [filename]
+  (slurp (io/resource filename)))
+
+(defn copy-template [filename dst]
+  (io/copy (io/resource filename) dst))
+
+(defn interpolate-template [s ident]
+  (-> s
+      ;; TODO {{VERSION}}
+      (string/replace "{{IDENT}}" ident)
+      (string/replace "{{HOME}}" HOME)))
+
+(defn copy-interpolated [ident filename dst]
+  (let [s (slurp-template filename)]
+    (spit dst (interpolate-template s ident))))
+
 (defn ensure-package [package-path]
-  (let [ident (extract-ident package-path)
-        d (io/file package-path)]
+  (let [d (io/file package-path)]
     (when-not (.exists d)
-      ;; make-parents
-      ;; 1) spit src core & worker
-      ;; 2) spit package.json
-      ;; 3) spit lib/index.js
-      ;;;4) spit deps.edn
-      ;;;5) spit resources
-      ;;;6) ppm link
-      )))
+      (let [ident (extract-ident package-path)
+            copy-interpolated (partial copy-interpolated ident)
+            main (io/file package-path "src" ident "main.cljs")
+            worker (io/file package-path "src" ident "worker.cljs")
+            boot (io/file package-path "lib" (str ident ".js"))]
+        (io/make-parents d)
+        (copy-interpolated "deps.edn.tpl" (io/file d "deps.edn"))
+        (copy-interpolated "package.json.tpl" (io/file d "package.json"))
+        (io/make-parents boot)
+        (copy-interpolated "lib_ident.js.tpl" boot)
+        (io/make-parents main)
+        (copy-interpolated "src_ident_main.cljs.tpl" main)
+        (copy-interpolated "src_ident_worker.cljs.tpl" worker)))))
 
 #!----------------------------------------------------------------------------------------------------------------------
 #!
 #! Public API
 #!
 
-(defn create-package [package-path])
-
-(defn update-package [package-path])
-
 (defn link-package [package-path])
 
-(defn install-package [package-path])
+#_
+(defn install-package
+  "given extant package directory, setup shadow-cljs.edn & link to pulsar"
+  [package-path])
+
+#_(defn update-package [package-path])
+
+(defn create-package [package-path]
+  (ensure-package package-path)
+  (ensure-home-shadow-cljs-dot-edn package-path)
+  ;;;6) ppm link
+  )
 
 (defn start-shadow
   ([build-id] ;;accept package-path too?
