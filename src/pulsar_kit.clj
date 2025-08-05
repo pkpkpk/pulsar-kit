@@ -54,7 +54,7 @@
             "--no-sandbox"
             #_"-d")))
 
-(defn kill! []
+(defn kill-pulsar! []
   (when (alive?)
     (process/destroy-tree @*instance)
     (reset! *instance nil)))
@@ -83,47 +83,49 @@
            (= s s'')))
     (catch Exception _ false)))
 
-(defn target-dir [ident]
-  (io/file HOME (str ident "_target")))
+(def target (io/file HOME "target"))
 
 (defn extract-ident [package-path]
-  (let [ident       (.getName package-path)]
+  (let [ident (.getName (io/file package-path))]
     (assert (ident-safe? ident))
     (assert (string/ends-with? package-path (name ident)))
     ident))
 
+(defn main-cfg [ident]
+  {:target           :node-script
+   :output-dir       (str (.getAbsolutePath (io/file target ident "main")))
+   :output-to        (str (.getAbsolutePath (io/file target ident "main" "main.js")))
+   :main             (symbol (str ident ".main/-main"))
+   :devtools         {:reload-strategy :recompile-dependents
+                      :hud             true}
+   :compiler-options {:infer-externs true}
+   :pulsar           true})
+
+(defn worker-cfg [ident]
+  {:target           :browser
+   :output-dir       (str (.getAbsolutePath (io/file target ident "worker")))
+   :output-to        (str (.getAbsolutePath (io/file target ident "worker" "worker.js")))
+   :compiler-options {:infer-externs true}
+   :devtools         {:reload-strategy :recompile-dependents}
+   :pulsar           true
+   :modules {:worker {:init-fn (symbol (str ident ".worker/-main"))
+             :web-worker true}}})
+
 (defn ensure-home-shadow-cljs-dot-edn [package-path]
   (assert (home?) "must run from $HOME directory")
   (let [ident           (extract-ident package-path)
-        main            (symbol (str ident ".main/-main"))
-        #_ #_ worker          (symbol (str ident ".worker/-main"))
         src             (str (io/file package-path "src"))
         build-id        (keyword ident)
-        #_ #_ worker-build-id (keyword (str ident ".worker"))
-        target          (target-dir ident)
+        worker-build-id (keyword (str ident ".worker"))
         f               (io/file "shadow-cljs.edn")
         nominal-cfg     {:deps         {:aliases [build-id]}
                          :source-paths [src]
-                         :builds       {build-id {:target           :node-script
-                                                  :output-dir       (str target)
-                                                  :output-to        (str (io/file target "main.js"))
-                                                  :devtools         {:reload-strategy :recompile-dependents
-                                                                     :hud             true}
-                                                  :main             main
-                                                  :compiler-options {:infer-externs true}}
-                                        #_ #_worker-build-id
-                                        {:target           :node-script
-                                         :output-dir       target
-                                         :output-to        (str (io/file target "worker.js"))
-                                         :compiler-options {:infer-externs true}
-                                         :devtools         {:reload-strategy :recompile-dependents}
-                                         :main             worker
-                                         :web-worker       true}}}]
+                         :builds       {build-id (main-cfg ident)
+                                        worker-build-id (worker-cfg ident)}}]
     (if (.exists f)
       (do
         ;; slurp, modify w/ rewrite-edn, spit
-        (throw (Exception. "TODO look for build-id, rewrite-edn if missing"))
-        )
+        (throw (Exception. "TODO verify existing shadow-cljs.edn")))
       (spit "shadow-cljs.edn" (with-out-str (pprint/pprint nominal-cfg))))))
 
 (defn ensure-package [package-path]
@@ -155,8 +157,15 @@
 
 (defn launch [build-id] ;;accept package-path too?
   (start-shadow build-id)
+  ;; TODO we should be able to launch on build failure to fix issues
+  ;;  --- static bootloader script should loop try
+  ;;  --- expose manual load
   (launch-pulsar))
+
+(defn shutdown [])
 
 (comment
   (do (require :reload 'pulsar-kit) (in-ns 'pulsar-kit) (use 'clojure.repl))
+
+  (ensure-home-shadow-cljs-dot-edn "Projects/nb3")
   )
