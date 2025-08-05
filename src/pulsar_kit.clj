@@ -152,6 +152,8 @@
 
 (defn link-package [package-path])
 
+(defn install-package [package-path])
+
 (defn start-shadow
   ([build-id] ;;accept package-path too?
    (shadow-server/start!)
