@@ -150,6 +150,8 @@
 
 (defn update-package [package-path])
 
+(defn link-package [package-path])
+
 (defn start-shadow
   ([build-id] ;;accept package-path too?
    (shadow-server/start!)
@@ -160,6 +162,10 @@
   ;; TODO we should be able to launch on build failure to fix issues
   ;;  --- static bootloader script should loop try
   ;;  --- expose manual load
+  (launch-pulsar))
+
+(defn relaunch-pulsar []
+  (kill-pulsar!)
   (launch-pulsar))
 
 (defn shutdown [])
