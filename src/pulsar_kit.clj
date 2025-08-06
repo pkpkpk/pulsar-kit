@@ -5,9 +5,12 @@
             [borkdude.rewrite-edn :as r]
             [clojure.java.io :as io]
             [clojure.pprint :as pprint]
+            [clojure.repl.deps :as deps]
             [clojure.string :as string]
-            [jsonista.core :as j]
             [malli.core :as m]
+            [pulsar-kit.ppm :as ppm]
+            [shadow.build :as build]
+            [shadow.build.data :as data]
             [shadow.cljs.devtools.api :as shadow]
             [shadow.cljs.devtools.config :as config]
             [shadow.cljs.devtools.server :as shadow-server])
@@ -59,16 +62,12 @@
     (reset! *instance nil)))
 
 #!-----------------------------------------------------------------------------
-#! PPM
 
-(defn list-packages []
-  (j/read-value
-    (:out (process/shell {:out :string :err :inherit} "ppm ls --json"))
-    j/keyword-keys-object-mapper))
-
-;; todo init, link, unlink, etc
-
-#!-----------------------------------------------------------------------------
+(defn yes-or-no-p [prompt]
+  (print (str prompt " (y/n) "))
+  (flush)
+  (let [response (read-line)]
+    (boolean (re-matches #"(?i)y(?:es)?|n(?:o)?" (string/trim response)))))
 
 (defn ident-safe? [s]
   (try
@@ -127,45 +126,43 @@
         (throw (Exception. "TODO verify existing shadow-cljs.edn")))
       (spit "shadow-cljs.edn" (with-out-str (pprint/pprint nominal-cfg))))))
 
-(defn slurp-template [filename]
-  (slurp (io/resource filename)))
-
-(defn copy-template [filename dst]
-  (io/copy (io/resource filename) dst))
-
 (defn interpolate-template [s ident]
   (-> s
       ;; TODO {{VERSION}}
       (string/replace "{{IDENT}}" ident)
       (string/replace "{{HOME}}" HOME)))
 
-(defn copy-interpolated [ident filename dst]
-  (let [s (slurp-template filename)]
-    (spit dst (interpolate-template s ident))))
+(def template-dir (io/resource "template"))
 
-(defn ensure-package [package-path]
+(defn template-file [& parts]
+  (apply io/file (into [(io/resource "template")] parts)))
+
+(defn copy-interpolated [ident template dst]
+  (let [content (slurp template)]
+    (spit dst (interpolate-template content ident))))
+
+(defn copy-package-templates [package-path]
+  (assert (home?))
   (let [d (io/file package-path)]
     (when-not (.exists d)
+      (println "creating package in " (.getPath d))
       (let [ident (extract-ident package-path)
             copy-interpolated (partial copy-interpolated ident)
+            deps (io/file d "deps.edn")
             main (io/file package-path "src" ident "main.cljs")
             worker (io/file package-path "src" ident "worker.cljs")
             boot (io/file package-path "lib" (str ident ".js"))]
-        (io/make-parents d)
-        (copy-interpolated "deps.edn.tpl" (io/file d "deps.edn"))
-        (copy-interpolated "package.json.tpl" (io/file d "package.json"))
+        (io/make-parents deps)
+        (copy-interpolated (template-file "deps.edn") deps)
+        (copy-interpolated (template-file "package.json") (io/file d "package.json"))
         (io/make-parents boot)
-        (copy-interpolated "lib_ident.js.tpl" boot)
+        (copy-interpolated (template-file "lib" "ident.js") boot)
         (io/make-parents main)
-        (copy-interpolated "src_ident_main.cljs.tpl" main)
-        (copy-interpolated "src_ident_worker.cljs.tpl" worker)))))
+        (copy-interpolated (template-file "src" "ident" "main.cljs") main)
+        (copy-interpolated (template-file "src" "ident" "worker.cljs") worker)))))
 
 #!----------------------------------------------------------------------------------------------------------------------
-#!
 #! Public API
-#!
-
-(defn link-package [package-path])
 
 #_
 (defn install-package
@@ -175,31 +172,61 @@
 #_(defn update-package [package-path])
 
 (defn create-package [package-path]
-  (ensure-package package-path)
+  (copy-package-templates package-path)
   (ensure-home-shadow-cljs-dot-edn package-path)
-  ;;;6) ppm link
+  (ppm/link-package package-path)
+
   )
+
+(defn delete-package [package-path]
+  (fs/delete-tree package-path))
+
+#!-----------------------------------------------------------------------------
+
+(defn warnings
+  "takes state result from shadow/compile*"
+  [{:keys [build-sources] :as state}]
+  (not-empty
+    (into {}
+          (map
+            (fn [key]
+              (let [info (data/get-source-by-id state key)]
+                (when-let [warnings (seq (build/enhance-warnings state info))]
+                  [key warnings]))))
+          build-sources)))
 
 (defn start-shadow
   ([build-id] ;;accept package-path too?
    (shadow-server/start!)
+   (shadow/compile* build-id {}) ;; we want a throw on errors
    (shadow/watch (keyword build-id))))
+
+(defn stop-shadow [build-id]
+  (shadow/stop-worker build-id)
+  (shadow-server/stop!))
+
+#!-----------------------------------------------------------------------------
 
 (defn launch [build-id] ;;accept package-path too?
   (start-shadow build-id)
   ;; TODO we should be able to launch on build failure to fix issues
   ;;  --- static bootloader script should loop try
-  ;;  --- expose manual load
+  ;;  --- expose manual reload api in client
   (launch-pulsar))
 
 (defn relaunch-pulsar []
   (kill-pulsar!)
   (launch-pulsar))
 
-(defn shutdown [])
+(defn shutdown []
+  (shadow-server/stop!)
+  (kill-pulsar!))
 
 (comment
   (do (require :reload 'pulsar-kit) (in-ns 'pulsar-kit) (use 'clojure.repl))
-
   (ensure-home-shadow-cljs-dot-edn "Projects/nb3")
+
+  (io/resource "deku/main.cljs")
+  (deps/add-lib 'pkpkpk/deku {:local/root "Projects/deku"})
+  (io/resource "deku/main.cljs")
   )
