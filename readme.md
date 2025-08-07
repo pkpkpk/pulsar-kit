@@ -1,5 +1,5 @@
 ```clojure
-com.github.pkpkpk/pulsar-kit {:git/sha f8fe52e41e057783b6e5e94aa0674fbe124032ab}
+com.github.pkpkpk/pulsar-kit {:git/sha 02a440d8f526e369fefc3393648e89cb30bd1264}
 ```
 
 This is toolkit for injecting a shadow-cljs into the [pulsar](https://github.com/pulsar-edit/pulsar) runtime and driving the editor runtime from the repl. Pulsar-kit only shaves yaks and provides bindings; the package it produces is yours to modify and use as you choose.
