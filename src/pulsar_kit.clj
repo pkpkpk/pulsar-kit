@@ -89,70 +89,39 @@
     (assert (string/ends-with? package-path (name ident)))
     ident))
 
-(defn main-cfg [ident]
-  {:target           :node-script
-   :output-dir       (str (.getAbsolutePath (io/file target ident "main")))
-   :output-to        (str (.getAbsolutePath (io/file target ident "main" "main.js")))
-   :main             (symbol (str ident ".main/-main"))
-   :devtools         {:reload-strategy :recompile-dependents
-                      :hud             true}
-   :compiler-options {:infer-externs true}
-   :pulsar           true})
+(defn path-ident [ident] (string/replace ident "-" "_"))
 
-(defn worker-cfg [ident]
-  {:target           :browser
-   :output-dir       (str (.getAbsolutePath (io/file target ident "worker")))
-   :output-to        (str (.getAbsolutePath (io/file target ident "worker" "worker.js")))
-   :compiler-options {:infer-externs true}
-   :devtools         {:reload-strategy :recompile-dependents}
-   :pulsar           true
-   :modules {:worker {:init-fn (symbol (str ident ".worker/-main"))
-             :web-worker true}}})
-
-(defn ensure-home-shadow-cljs-dot-edn [package-path]
+(defn link-shadow-cljs-dot-edn [package-path]
   (assert (home?) "must run from $HOME directory")
-  (let [ident           (extract-ident package-path)
-        src             (str (io/file package-path "src"))
-        build-id        (keyword ident)
-        worker-build-id (keyword (str ident ".worker"))
-        f               (io/file "shadow-cljs.edn")
-        nominal-cfg     {:deps         {:aliases [build-id]}
-                         :source-paths [src]
-                         :builds       {build-id (main-cfg ident)
-                                        worker-build-id (worker-cfg ident)}}]
+  (let [f (io/file "shadow-cljs.edn")]
     (if (.exists f)
-      (do
-        ;; slurp, modify w/ rewrite-edn, spit
-        (throw (Exception. "TODO verify existing shadow-cljs.edn")))
-      (spit "shadow-cljs.edn" (with-out-str (pprint/pprint nominal-cfg))))))
-
-(defn interpolate-template [s ident]
-  (-> s
-      ;; TODO {{VERSION}}
-      (string/replace "{{IDENT}}" ident)
-      (string/replace "{{HOME}}" HOME)))
-
-(def template-dir (io/resource "template"))
+      (throw (Exception. "TODO reconcile existing shadow-cljs.edn"))
+      (fs/create-sym-link f (io/file package-path "shadow-cljs.edn")))))
 
 (defn template-file [& parts]
   (apply io/file (into [(io/resource "template")] parts)))
 
-(defn copy-interpolated [ident template dst]
-  (let [content (slurp template)]
-    (spit dst (interpolate-template content ident))))
+(defn copy-interpolated [package-path template dst]
+  (let [ident (extract-ident package-path)]
+    (spit dst (-> (slurp template)
+                  (string/replace "{{PACKAGE_PATH}}" package-path)
+                  (string/replace "{{PATH_IDENT}}" (path-ident ident))
+                  (string/replace "{{IDENT}}" ident)
+                  (string/replace "{{HOME}}" HOME)))))
 
 (defn copy-package-templates [package-path]
   (assert (home?))
   (let [d (io/file package-path)]
     (when-not (.exists d)
       (println "creating package in " (.getPath d))
-      (let [ident (extract-ident package-path)
+      (let [ident             (extract-ident package-path)
             copy-interpolated (partial copy-interpolated ident)
-            deps (io/file d "deps.edn")
-            main (io/file package-path "src" ident "main.cljs")
-            worker (io/file package-path "src" ident "worker.cljs")
-            boot (io/file package-path "lib" (str ident ".js"))]
+            deps              (io/file d "deps.edn")
+            main              (io/file package-path "src" (path-ident ident) "main.cljs")
+            worker            (io/file package-path "src" (path-ident ident) "worker.cljs")
+            boot              (io/file package-path "lib" (str (path-ident ident) ".js"))]
         (io/make-parents deps)
+        (copy-interpolated (template-file "shadow-cljs.edn") (io/file d "shadow-cljs.edn"))
         (copy-interpolated (template-file "deps.edn") deps)
         (copy-interpolated (template-file "package.json") (io/file d "package.json"))
         (io/make-parents boot)
@@ -160,6 +129,8 @@
         (io/make-parents main)
         (copy-interpolated (template-file "src" "ident" "main.cljs") main)
         (copy-interpolated (template-file "src" "ident" "worker.cljs") worker)))))
+
+(defn ensure-package-is-on-classpath [package-path])
 
 #!----------------------------------------------------------------------------------------------------------------------
 #! Public API
@@ -173,10 +144,9 @@
 
 (defn create-package [package-path]
   (copy-package-templates package-path)
-  (ensure-home-shadow-cljs-dot-edn package-path)
+  (link-shadow-cljs-dot-edn package-path)
   (ppm/link-package package-path)
-
-  )
+  (ensure-package-is-on-classpath package-path))
 
 (defn delete-package [package-path]
   (fs/delete-tree package-path))

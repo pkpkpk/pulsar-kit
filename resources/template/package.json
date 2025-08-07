@@ -1,6 +1,6 @@
 {
   "name": "{{IDENT}}",
-  "main": "./lib/{{IDENT}}.js",
+  "main": "./lib/{{PATH_IDENT}}.js",
   "version": "0.0.0",
   "description": "{{IDENT}} is a shadow-cljs repl into pulsar",
   "keywords": [

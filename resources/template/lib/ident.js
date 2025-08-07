@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-eval("require('{{HOME}}/target/{{IDENT}}/main/main.js')");
+eval("require('{{HOME}}/target/{{PATH_IDENT}}/main/main.js')");
 
 const out = {};
 if ({{IDENT}}.main?.activate) out.activate = {{IDENT}}.main.activate;

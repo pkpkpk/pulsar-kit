@@ -3,7 +3,7 @@
             [pulsar-kit.electron.processes.main.browser-window.web-contents :as web-contents]))
 
 (def path (js/require "path"))
-(defonce worker (js/Worker. (.resolve path js/window.__dirname "{{HOME}}/target/{{IDENT}}/worker/worker.js")))
+(defonce worker (js/Worker. (.resolve path js/window.__dirname "{{HOME}}/target/{{PATH_IDENT}}/worker/worker.js")))
 
 (defn ^:dev/before-load before-load [& args])
 (defn ^:dev/after-load after-load [& args] (notifications/add-info "did reload"))
