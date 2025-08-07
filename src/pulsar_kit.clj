@@ -4,15 +4,12 @@
             [babashka.process :as process]
             [borkdude.rewrite-edn :as r]
             [clojure.java.io :as io]
-            [clojure.pprint :as pprint]
             [clojure.repl.deps :as deps]
             [clojure.string :as string]
-            [malli.core :as m]
             [pulsar-kit.ppm :as ppm]
             [shadow.build :as build]
             [shadow.build.data :as data]
             [shadow.cljs.devtools.api :as shadow]
-            [shadow.cljs.devtools.config :as config]
             [shadow.cljs.devtools.server :as shadow-server])
   (:import (java.lang ProcessHandle)))
 
@@ -121,12 +118,17 @@
         (copy-interpolated (template-file "src" "ident" "worker.cljs") worker)))))
 
 (defn find-deps-edn []
-  (loop [dir (io/file (System/getProperty "user.dir"))]
-    (let [f (io/file dir "deps.edn")]
-      (cond
-        (.exists f) f
-        (nil? (.getParentFile dir)) nil
-        :else (recur (.getParentFile dir))))))
+  (if-let [env-config (System/getenv "CLJ_CONFIG")]
+    (io/file env-config)
+    (loop [dir (io/file (System/getProperty "user.dir"))]
+      (let [f (io/file dir "deps.edn")]
+        (cond
+          (.exists f) f
+          (nil? (.getParentFile dir))
+          (let [dot-clojure (io/file HOME ".clojure" "deps.edn")]
+            (and (.exists dot-clojure)
+                 dot-clojure))
+          :else (recur (.getParentFile dir)))))))
 
 (defn ensure-package-is-on-classpath [package-path]
   (let [ident (extract-ident package-path)
@@ -167,11 +169,6 @@
     (process/destroy-tree @*instance)
     (reset! *instance nil)))
 
-#_
-(defn install-package
-  "given extant package directory, setup shadow-cljs.edn & link to pulsar"
-  [package-path])
-
 (defn start-shadow
   ([build-id] ;;accept package-path too?
    (let [build-id (keyword build-id)
@@ -183,8 +180,11 @@
      (shadow/watch worker-id))))
 
 (defn stop-shadow [build-id]
-  (shadow/stop-worker build-id)
-  (shadow-server/stop!))
+  (let [build-id  (keyword build-id)
+        worker-id (keyword (str (name build-id) ".worker"))]
+    (shadow/stop-worker build-id)
+    (shadow/stop-worker worker-id)
+    (shadow-server/stop!)))
 
 (defn launch [build-id] ;;accept package-path too?
   (start-shadow build-id)
@@ -200,6 +200,16 @@
     (ensure-package-is-on-classpath package-path)
     (link-shadow-cljs-dot-edn package-path)
     (println "Package creation complete with build key '" (keyword ident) "'")))
+
+(defn install-package
+  "given extant package directory, setup shadow-cljs.edn & link to pulsar"
+  [package-path]
+  (let []
+    ;; verify cljs files
+    ;; override lib/ident.js & shadow-cljs.edn
+    ;; ppm link
+    ;; put on classpath
+    ))
 
 (defn purge-package [package-path]
   (when-let [deps-file (find-deps-edn)]
