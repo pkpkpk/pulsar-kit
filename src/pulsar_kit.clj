@@ -18,10 +18,6 @@
 
 (def HOME (System/getProperty "user.home"))
 
-(defn home? [] (= HOME (System/getProperty "user.dir")))
-
-(defonce *instance (atom nil))
-
 (defn pulsar-exec-path []
   (let [os (System/getProperty "os.name")
         env-path (System/getenv "PULSAR_PATH")]
@@ -44,30 +40,29 @@
       :else
       (throw (Exception. "unsupported OS")))))
 
-(defn alive? [] (some-> @*instance process/alive?))
-
-(defn launch-pulsar []
-  (reset! *instance
-          (process/process
-            {:dir HOME
-             #_ #_ :env {"ATOM_DISABLE_SHELLING_OUT_FOR_ENVIRONMENT" "true"}}
-            (pulsar-exec-path)
-            (str "--executed-from=" HOME)
-            "--no-sandbox"
-            #_"-d")))
-
-(defn kill-pulsar! []
-  (when (alive?)
-    (process/destroy-tree @*instance)
-    (reset! *instance nil)))
-
-#!-----------------------------------------------------------------------------
+(defn warnings
+  "takes state result from shadow/compile*"
+  [{:keys [build-sources] :as state}]
+  (not-empty
+    (into {}
+          (map
+            (fn [key]
+              (let [info (data/get-source-by-id state key)]
+                (when-let [warnings (seq (build/enhance-warnings state info))]
+                  [key warnings]))))
+          build-sources)))
 
 (defn yes-or-no-p [prompt]
-  (print (str prompt " (y/n) "))
-  (flush)
-  (let [response (read-line)]
-    (boolean (re-matches #"(?i)y(?:es)?|n(?:o)?" (string/trim response)))))
+  (loop []
+    (print (str prompt " (y/n) "))
+    (flush)
+    (let [response (string/trim (read-line))]
+      (case (.toLowerCase response)
+        "y" true
+        "yes" true
+        "n" false
+        "no" false
+        (recur)))))
 
 (defn ident-safe? [s]
   (try
@@ -81,8 +76,6 @@
            (= s s'')))
     (catch Exception _ false)))
 
-(def target (io/file HOME "target"))
-
 (defn extract-ident [package-path]
   (let [ident (.getName (io/file package-path))]
     (assert (ident-safe? ident))
@@ -92,7 +85,6 @@
 (defn path-ident [ident] (string/replace ident "-" "_"))
 
 (defn link-shadow-cljs-dot-edn [package-path]
-  (assert (home?) "must run from $HOME directory")
   (let [f (io/file "shadow-cljs.edn")]
     (if (.exists f)
       (throw (Exception. "TODO reconcile existing shadow-cljs.edn"))
@@ -104,18 +96,16 @@
 (defn copy-interpolated [package-path template dst]
   (let [ident (extract-ident package-path)]
     (spit dst (-> (slurp template)
-                  (string/replace "{{PACKAGE_PATH}}" package-path)
+                  (string/replace "{{PACKAGE_PATH}}" (.getAbsolutePath (io/file package-path)))
                   (string/replace "{{PATH_IDENT}}" (path-ident ident))
-                  (string/replace "{{IDENT}}" ident)
-                  (string/replace "{{HOME}}" HOME)))))
+                  (string/replace "{{IDENT}}" ident)))))
 
 (defn copy-package-templates [package-path]
-  (assert (home?))
   (let [d (io/file package-path)]
     (when-not (.exists d)
-      (println "creating package in " (.getPath d))
+      (println "Creating package in " (.getAbsolutePath d))
       (let [ident             (extract-ident package-path)
-            copy-interpolated (partial copy-interpolated ident)
+            copy-interpolated (partial copy-interpolated package-path)
             deps              (io/file d "deps.edn")
             main              (io/file package-path "src" (path-ident ident) "main.cljs")
             worker            (io/file package-path "src" (path-ident ident) "worker.cljs")
@@ -130,52 +120,71 @@
         (copy-interpolated (template-file "src" "ident" "main.cljs") main)
         (copy-interpolated (template-file "src" "ident" "worker.cljs") worker)))))
 
-(defn ensure-package-is-on-classpath [package-path])
+(defn find-deps-edn []
+  (loop [dir (io/file (System/getProperty "user.dir"))]
+    (let [f (io/file dir "deps.edn")]
+      (cond
+        (.exists f) f
+        (nil? (.getParentFile dir)) nil
+        :else (recur (.getParentFile dir))))))
+
+(defn ensure-package-is-on-classpath [package-path]
+  (let [ident (extract-ident package-path)
+        main (str (path-ident ident) "/main.cljs")]
+    (when (nil? (io/resource main))
+      (let [lib (symbol "pulsar-kit" ident)
+            coordinate {:local/root package-path}]
+        (println "Adding package " lib " to classpath...")
+        (deps/add-lib lib coordinate)
+        (assert (io/resource main) (str "failed to add dep " {lib coordinate}))
+        (when-let [deps-file (find-deps-edn)]
+          (when (yes-or-no-p (str "\nThe '" ident "' package has been dynamically added to the current class-path.\n"
+                                  "The deps.edn file for this scope is '" (.getAbsolutePath deps-file) "' \n"
+                                  "Would you like to add the dependency into that file?"))
+            (let [nodes (r/parse-string (slurp deps-file))
+                  deps' (str (r/assoc-in nodes [:deps lib] coordinate))]
+              (spit deps-file deps'))))))))
 
 #!----------------------------------------------------------------------------------------------------------------------
 #! Public API
+
+(defonce *instance (atom nil))
+
+(defn alive? [] (some-> @*instance process/alive?))
+
+(defn launch-pulsar []
+  (reset! *instance
+          (process/process
+            {:dir HOME
+             #_#_:env {"ATOM_DISABLE_SHELLING_OUT_FOR_ENVIRONMENT" "true"}}
+            (pulsar-exec-path)
+            (str "--executed-from=" HOME)
+            "--no-sandbox"
+            #_"-d")))
+
+(defn kill-pulsar! []
+  (when (alive?)
+    (process/destroy-tree @*instance)
+    (reset! *instance nil)))
 
 #_
 (defn install-package
   "given extant package directory, setup shadow-cljs.edn & link to pulsar"
   [package-path])
 
-#_(defn update-package [package-path])
-
-(defn create-package [package-path]
-  (copy-package-templates package-path)
-  (link-shadow-cljs-dot-edn package-path)
-  (ppm/link-package package-path)
-  (ensure-package-is-on-classpath package-path))
-
-(defn delete-package [package-path]
-  (fs/delete-tree package-path))
-
-#!-----------------------------------------------------------------------------
-
-(defn warnings
-  "takes state result from shadow/compile*"
-  [{:keys [build-sources] :as state}]
-  (not-empty
-    (into {}
-          (map
-            (fn [key]
-              (let [info (data/get-source-by-id state key)]
-                (when-let [warnings (seq (build/enhance-warnings state info))]
-                  [key warnings]))))
-          build-sources)))
-
 (defn start-shadow
   ([build-id] ;;accept package-path too?
-   (shadow-server/start!)
-   (shadow/compile* build-id {}) ;; we want a throw on errors
-   (shadow/watch (keyword build-id))))
+   (let [build-id (keyword build-id)
+         worker-id (keyword (str (name build-id) ".worker"))]
+     (shadow-server/start!)
+     (shadow/compile! build-id {}) ;; using compile! because we want a throw on errors
+     (shadow/compile! worker-id  {})
+     (shadow/watch build-id)
+     (shadow/watch worker-id))))
 
 (defn stop-shadow [build-id]
   (shadow/stop-worker build-id)
   (shadow-server/stop!))
-
-#!-----------------------------------------------------------------------------
 
 (defn launch [build-id] ;;accept package-path too?
   (start-shadow build-id)
@@ -183,6 +192,30 @@
   ;;  --- static bootloader script should loop try
   ;;  --- expose manual reload api in client
   (launch-pulsar))
+
+(defn create-package [package-path]
+  (let [ident (extract-ident package-path)]
+    (copy-package-templates package-path)
+    (ppm/link-package package-path)
+    (ensure-package-is-on-classpath package-path)
+    (link-shadow-cljs-dot-edn package-path)
+    (println "Package creation complete with build key '" (keyword ident) "'")))
+
+(defn purge-package [package-path]
+  (when-let [deps-file (find-deps-edn)]
+    (let [ident (extract-ident package-path)
+          nodes (r/parse-string (slurp deps-file))
+          lib (symbol "pulsar-kit" ident)]
+      (when (r/get-in nodes [:deps lib])
+        (spit deps-file (str (r/update-in nodes [:deps] dissoc lib))))))
+  (let [cfg (io/file "shadow-cljs.edn")]
+    (when (and (.exists cfg)
+               (fs/sym-link? cfg)
+               (= (str (fs/real-path cfg))
+                  (.getAbsolutePath (io/file package-path "shadow-cljs.edn"))))
+      (fs/delete cfg)))
+  (ppm/remove-package (extract-ident package-path))
+  (fs/delete-tree package-path))
 
 (defn relaunch-pulsar []
   (kill-pulsar!)
@@ -194,9 +227,4 @@
 
 (comment
   (do (require :reload 'pulsar-kit) (in-ns 'pulsar-kit) (use 'clojure.repl))
-  (ensure-home-shadow-cljs-dot-edn "Projects/nb3")
-
-  (io/resource "deku/main.cljs")
-  (deps/add-lib 'pkpkpk/deku {:local/root "Projects/deku"})
-  (io/resource "deku/main.cljs")
   )

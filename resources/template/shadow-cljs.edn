@@ -2,16 +2,16 @@
  :builds
  {:{{IDENT}}
   {:target :node-script
-   :output-dir "{{HOME}}/target/{{PATH_IDENT}}/main"
-   :output-to "{{HOME}}/target/{{PATH_IDENT}}/main/main.js"
+   :output-dir "{{PACKAGE_PATH}}/target/{{PATH_IDENT}}/main"
+   :output-to "{{PACKAGE_PATH}}/target/{{PATH_IDENT}}/main/main.js"
    :main {{IDENT}}.main/-main
    :devtools {:reload-strategy :recompile-dependents, :hud true}
    :compiler-options {:infer-externs true}
    :pulsar true}
   :{{IDENT}}.worker
   {:target :browser
-   :output-dir "{{HOME}}/target/{{PATH_IDENT}}/worker"
-   :output-to "{{HOME}}/target/{{PATH_IDENT}}/worker/worker.js"
+   :output-dir "{{PACKAGE_PATH}}/target/{{PATH_IDENT}}/worker"
+   :output-to "{{PACKAGE_PATH}}/target/{{PATH_IDENT}}/worker/worker.js"
    :compiler-options {:infer-externs true}
    :devtools {:reload-strategy :recompile-dependents}
    :pulsar true
