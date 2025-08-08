@@ -11,7 +11,7 @@ This is toolkit for injecting a shadow-cljs into the [pulsar](https://github.com
    + This identity is used both to generate code and produce the keyword build-id used to start the shadow-cljs repl, so choose something that is simple and a valid clojure symbol
 3) (from home) launch pulsar with a repl via `(pulsar-kit/launch :<ident>)`
    + [shadow-cljs](https://shadow-cljs.github.io/) frequently reads config from a *shadow-cljs.edn* in the cwd... you are restricted to running your repl to where the desired config file can be read.
-   + By default, pulsar-kit will link the generated shadow-cljs.edn to your home directory, which has more utility that running from within the package
+   + By default, pulsar-kit will link the generated shadow-cljs.edn to your home directory, which has more utility than running from within the package
 
 ### Example
 
