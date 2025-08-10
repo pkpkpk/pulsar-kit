@@ -196,20 +196,32 @@
 (defn create-package [package-path]
   (let [ident (extract-ident package-path)]
     (copy-package-templates package-path)
-    (ppm/link-package package-path)
+    (ppm/link package-path)
     (ensure-package-is-on-classpath package-path)
     (link-shadow-cljs-dot-edn package-path)
     (println "Package creation complete with build key '" (keyword ident) "'")))
 
-(defn install-package
+(defn link-package
   "given extant package directory, setup shadow-cljs.edn & link to pulsar"
   [package-path]
-  (let []
-    ;; verify cljs files
-    ;; override lib/ident.js & shadow-cljs.edn
-    ;; ppm link
-    ;; put on classpath
-    ))
+  (let [ident (extract-ident package-path)]
+    (assert (io/file package-path "shadow-cljs.edn"))
+    (ppm/link package-path)
+    (link-shadow-cljs-dot-edn package-path)
+    (ensure-package-is-on-classpath package-path)))
+
+(defn unlink-package [package-path]
+  (let [ident (extract-ident package-path)]
+    (assert (io/file package-path "shadow-cljs.edn"))
+    (ppm/unlink package-path)
+    (let [cfg (io/file HOME "shadow-cljs.edn")]
+      (when (and (.exists cfg)
+                 (fs/sym-link? cfg)
+                 (= (str (fs/real-path cfg))
+                    (.getAbsolutePath (io/file package-path "shadow-cljs.edn"))))
+        (fs/delete cfg)))))
+
+(defn linked? [package-path])
 
 (defn purge-package [package-path]
   (when-let [deps-file (find-deps-edn)]
@@ -218,13 +230,13 @@
           lib (symbol "pulsar-kit" ident)]
       (when (r/get-in nodes [:deps lib])
         (spit deps-file (str (r/update-in nodes [:deps] dissoc lib))))))
-  (let [cfg (io/file "shadow-cljs.edn")]
+  (let [cfg (io/file HOME "shadow-cljs.edn")]
     (when (and (.exists cfg)
                (fs/sym-link? cfg)
                (= (str (fs/real-path cfg))
                   (.getAbsolutePath (io/file package-path "shadow-cljs.edn"))))
       (fs/delete cfg)))
-  (ppm/remove-package (extract-ident package-path))
+  (ppm/unlink package-path)
   (fs/delete-tree package-path))
 
 (defn relaunch-pulsar []
