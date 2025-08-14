@@ -155,14 +155,15 @@
 (defn alive? [] (some-> @*instance process/alive?))
 
 (defn launch-pulsar []
-  (reset! *instance
-          (process/process
-            {:dir HOME
-             #_#_:env {"ATOM_DISABLE_SHELLING_OUT_FOR_ENVIRONMENT" "true"}}
-            (pulsar-exec-path)
-            (str "--executed-from=" HOME)
-            "--no-sandbox"
-            #_"-d")))
+  (when-not (alive?)
+    (reset! *instance
+            (process/process
+              {:dir HOME
+               #_#_:env {"ATOM_DISABLE_SHELLING_OUT_FOR_ENVIRONMENT" "true"}}
+              (pulsar-exec-path)
+              (str "--executed-from=" HOME)
+              "--no-sandbox"
+              #_"-d"))))
 
 (defn kill-pulsar! []
   (when (alive?)
