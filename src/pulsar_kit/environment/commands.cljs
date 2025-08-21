@@ -27,7 +27,8 @@
   and stopImmediatePropagation can be used to terminate the bubbling process and
   prevent invocation of additional listeners."
   (:refer-clojure :exclude [find])
-  (:require [malli.core :as m]))
+  (:require [malli.core :as m]
+            [pulsar-kit.exports.event-kit :as ek]))
 
 (defn add
   "Register one or more command listeners on a selector or DOM element.
@@ -148,3 +149,61 @@
     :else
     (throw (ex-info "removal-dispatch: unsupported argument" {:arg arg}))))
 
+#!------------------------------------------------------------------------------
+
+(defonce *registry (atom {})) ; command-name -> Disposable
+
+(def command-tuple-schema
+  (m/schema
+   [:tuple
+    [:string {:title "Selector"
+              :description "CSS selector string, e.g. 'atom-workspace'"}]
+    [:string {:title "Command Name"
+              :description "Command label, e.g. 'nb3:clear-console'"}]
+    [:or
+     [fn? {:title "Listener Function"
+           :description "Event listener fn taking the DOM event"}]
+     [:map
+      [:didDispatch [fn? {:title "Dispatch Function"
+                          :description "Function called with the event"}]]]]]))
+
+(defn- _register! [tuples]
+  (let [cd (ek/composite-disposable)]
+    (doseq [[selector command f] tuples]
+      (when-let [old (get @*registry command)]
+        (.dispose ^js old))
+      (let [wrapped (fn [ev] (f ev))      ;; stable fn for hot-reload
+            d       (add selector command wrapped)]
+        (swap! *registry assoc command d)
+        (.add cd d)))
+    cd))
+
+(defn register!
+  "Install a vector of [selector command f]. Returns a CompositeDisposable.
+   Re-registering the same command replaces the old disposable."
+  [tuple-or-tuples]
+  (if (m/validate command-tuple-schema tuple-or-tuples)
+    (_register! [tuple-or-tuples])
+    (_register! (m/coerce [:sequential command-tuple-schema] tuple-or-tuples))))
+
+(defn- _unregister! [k]
+  (or (when-let [d (get @*registry k)]
+        (.dispose ^js d)
+        (swap! *registry dissoc k)
+        true)
+      false))
+
+(defn unregister!
+  "Unregister a command by name"
+  [command-tuple-or-tuples]
+  (if (string? command-tuple-or-tuples)
+    [(_unregister! command-tuple-or-tuples)]
+    (if (m/validate command-tuple-schema command-tuple-or-tuples)
+      [(_unregister! (second command-tuple-or-tuples))]
+      (if (m/validate [:sequential command-tuple-schema] command-tuple-or-tuples)
+        (mapv _unregister! (map second command-tuple-or-tuples))
+        (throw (ex-info "unsupported arg" {:arg command-tuple-or-tuples}))))))
+
+(defn unregister-all! []
+  (doseq [[_ d] @*registry] (.dispose ^js d))
+  (reset! *registry {}))
