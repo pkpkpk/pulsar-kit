@@ -27,6 +27,8 @@ This is toolkit for injecting shadow-cljs into the [pulsar](https://github.com/p
 (shadow/repl :demo)
 ```
 
-Notice that shadow logs the nrepl port and ALSO puts `.nrepl-port` file to disk.
-In the same terminal (**not recommended**) you can connect to the cljs-repl with `(shadow/repl :demo)`,
-or in a separate terminal (**recommended**) you can connect to the `.nrepl-port` and start the repl with the same command
++ Notice that shadow logs the nrepl port and ALSO puts `.nrepl-port` file to disk.
+  - (**not recommended**) in same terminal, you can connect to the cljs-repl with `(shadow/repl :demo)`,
+  - (**recommended**) in a separate terminal you can connect to the `.nrepl-port` and start the repl with the same command
++ You first time start devtools you need to go into settings and 'enable custom formatters', a checkbox towards the bottom of the first settings page
+  - there is also a custom dark theme if you are into that kind of thing
