@@ -16,7 +16,7 @@ This is toolkit for injecting shadow-cljs into the [pulsar](https://github.com/p
 ### Example
 
 ```clojure
-(require 'pulsar-kit)
+(require 'pulsar-kit '[shadow.cljs.devtools.api :as shadow])
 
 (pulsar-kit/create-package "projects/demo") ;; creates projects/demo directory, populates & links it to ppm
 
@@ -24,4 +24,9 @@ This is toolkit for injecting shadow-cljs into the [pulsar](https://github.com/p
 
 (pulsar-kit/shutdown) ;; <-- stops shadow and kills pulsar
 
+(shadow/repl :demo)
 ```
+
+Notice that shadow logs the nrepl port and ALSO puts `.nrepl-port` file to disk.
+In the same terminal (**not recommended**) you can connect to the cljs-repl with `(shadow/repl :demo)`,
+or in a separate terminal (**recommended**) you can connect to the `.nrepl-port` and start the repl with the same command
